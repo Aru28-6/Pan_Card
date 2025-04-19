@@ -4,6 +4,7 @@ import numpy as np
 from PIL import Image
 from skimage.metrics import structural_similarity as ssim
 import matplotlib.pyplot as plt
+import io
 
 # Preprocess image (resize & grayscale)
 def preprocess_image(uploaded_file):
@@ -20,40 +21,39 @@ def compare_images(image1, image2):
 def determine_result(score):
     return ("✅ Valid PAN Card", "Minimal structural differences.") if score >= 0.85 else ("❌ Fake PAN Card", "Major structural differences detected.")
 
-# Streamlit UI
-st.set_page_config(page_title="PAN Card Tampering Detection", layout="centered")
-st.title("🆔 PAN Card Tampering Detection using SSIM")
+# Streamlit app
+st.title("🆔 PAN Card Tampering Detection")
 
-# Upload images
-ref_image_file = st.file_uploader("📌 Upload *reference* (original) PAN card", type=["png", "jpg", "jpeg"])
-test_image_file = st.file_uploader("🔍 Upload *test* PAN card image to verify", type=["png", "jpg", "jpeg"])
+# Upload reference and test images
+ref_image_file = st.file_uploader("Upload reference PAN card image (original)", type=["png", "jpg", "jpeg"])
+test_image_file = st.file_uploader("Upload test PAN card image (to be checked)", type=["png", "jpg", "jpeg"])
 
 if ref_image_file and test_image_file:
     # Process both images
     ref_image = preprocess_image(ref_image_file)
     test_image = preprocess_image(test_image_file)
 
-    # Compare using SSIM
+    # Compare images
     score, diff = compare_images(ref_image, test_image)
     result, reason = determine_result(score)
 
-    # Display result
-    st.subheader("📊 SSIM Result")
-    st.metric(label="SSIM Score", value=f"{score:.4f}")
+    # Display results
+    st.subheader("📊 SSIM Comparison Result")
+    st.write(f"**SSIM Score:** `{score:.4f}`")
     st.write(f"**Result:** {result}")
-    st.info(reason)
+    st.write(f"**Reason:** {reason}")
 
     # Show uploaded images
     st.subheader("🖼 Uploaded Images")
     col1, col2 = st.columns(2)
     with col1:
-        st.image(ref_image_file, caption="Reference PAN Card", use_column_width=True)
+        st.image(ref_image_file, caption="Reference Image", use_column_width=True)
     with col2:
-        st.image(test_image_file, caption="Test PAN Card", use_column_width=True)
+        st.image(test_image_file, caption="Test Image", use_column_width=True)
 
-    # Show SSIM Difference Map
-    st.subheader("📌 Structural Difference Map (SSIM Heatmap)")
+    # Show diff heatmap
+    st.subheader("📌 Structural Difference Map")
     fig, ax = plt.subplots()
     ax.imshow(diff, cmap='hot')
-    ax.axis("off")
+    ax.axis('off')
     st.pyplot(fig)
