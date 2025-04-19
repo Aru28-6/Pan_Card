@@ -10,7 +10,7 @@ def preprocess_image(image):
     image = cv2.resize(image, (400, 250))
     return image
 
-# Compute SSIM difference
+# Compare two images using SSIM
 def compare_images(image1, image2):
     score, diff = ssim(image1, image2, full=True)
     diff = (diff * 255).astype("uint8")
@@ -34,14 +34,14 @@ def highlight_tampered_sections(reference, test, diff):
 
     return result_image, thresh, tampered_areas
 
-# Decision logic
+# Determine result from SSIM score
 def determine_result(score):
     if score >= 0.85:
         return "✅ Valid PAN Card", "High similarity score and minimal structural differences."
     else:
         return "❌ Fake PAN Card", "Major structural differences detected. Possible tampering."
 
-# Define zone mappings for PAN fields (optional regions)
+# Optional field regions (for label detection)
 regions = {
     "PAN Number": (30, 10, 200, 70),
     "Candidate Name": (210, 10, 370, 70),
@@ -52,21 +52,24 @@ regions = {
     "Signature": (130, 210, 270, 250)
 }
 
-# Streamlit UI
+# Streamlit App UI
 st.set_page_config(page_title="PAN Card Tampering Detection", layout="wide")
 st.title("🔍 PAN Card Tampering Detection App")
-st.write("Upload the original and suspected PAN card images.")
+st.write("Upload the original and one or more suspected PAN card images to check for tampering.")
 
+# Upload original and test files
 reference_file = st.file_uploader("Upload Original PAN Card", type=["png", "jpg", "jpeg"])
 test_files = st.file_uploader("Upload Test PAN Cards", type=["png", "jpg", "jpeg"], accept_multiple_files=True)
 
+# Data for SSIM comparison graph
 ssim_scores = []
 file_names = []
 
+# Begin processing if both original and test files are provided
 if reference_file and test_files:
     ref_img = preprocess_image(reference_file)
 
-    for test_file in test_files:
+    for idx, test_file in enumerate(test_files):
         test_img = preprocess_image(test_file)
         score, diff = compare_images(ref_img, test_img)
         result_img, thresh_img, tampered_areas = highlight_tampered_sections(ref_img, test_img, diff)
@@ -75,6 +78,7 @@ if reference_file and test_files:
         ssim_scores.append(score)
         file_names.append(test_file.name)
 
+        # Check which fields are tampered
         detected_sections = set()
         for (x, y, w, h) in tampered_areas:
             cx, cy = x + w // 2, y + h // 2
@@ -82,6 +86,7 @@ if reference_file and test_files:
                 if x1 <= cx <= x2 and y1 <= cy <= y2:
                     detected_sections.add(f"❌ {label} is tampered.")
 
+        # Show Results
         st.subheader(f"📄 Results for: {test_file.name}")
         col1, col2 = st.columns(2)
         with col1:
@@ -103,12 +108,27 @@ if reference_file and test_files:
             st.write("✅ No specific tampered fields detected.")
         st.markdown("---")
 
-    # Plot SSIM scores
-    st.subheader("📊 SSIM Score Summary")
+    # Plot SSIM scores across test images
+    st.subheader("📊 SSIM Score Comparison with Original Image")
+
+    # Custom labels for x-axis
+    x_labels = [f"Test Image {i+1}" for i in range(len(file_names))]
+
+    # Plotting
     fig, ax = plt.subplots()
-    ax.bar(file_names, ssim_scores, color='skyblue')
-    ax.set_ylabel("SSIM Score")
-    ax.set_title("SSIM Comparison of Test Images")
-    ax.set_ylim([0, 1])
+    bars = ax.bar(x_labels, ssim_scores, color='skyblue', label='Test Images')
+    ax.axhline(y=1.0, color='green', linestyle='--', linewidth=2, label='Original Image (SSIM = 1.0)')
+
+    ax.set_ylabel("Structural Similarity Index (SSIM)")
+    ax.set_xlabel("Uploaded Test Images")
+    ax.set_title("SSIM Comparison of Test Images vs Original")
+    ax.set_ylim([0, 1.05])
     plt.xticks(rotation=45)
+
+    for bar, score in zip(bars, ssim_scores):
+        height = bar.get_height()
+        ax.annotate(f"{score:.2f}", xy=(bar.get_x() + bar.get_width() / 2, height),
+                    xytext=(0, 3), textcoords="offset points", ha='center', fontsize=8)
+
+    ax.legend()
     st.pyplot(fig)
