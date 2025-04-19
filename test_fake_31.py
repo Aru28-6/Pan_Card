@@ -7,13 +7,13 @@ import matplotlib.pyplot as plt
 # Preprocess uploaded images
 def preprocess_image(image):
     image = cv2.imdecode(np.frombuffer(image.read(), np.uint8), cv2.IMREAD_GRAYSCALE)
-    image = cv2.resize(image, (400, 250))  # Resize image to a fixed size
+    image = cv2.resize(image, (400, 250))
     return image
 
-# Compare two images using SSIM
+# Compute SSIM difference
 def compare_images(image1, image2):
     score, diff = ssim(image1, image2, full=True)
-    diff = (diff * 255).astype("uint8")  # Scale difference to visible range
+    diff = (diff * 255).astype("uint8")
     return score, diff
 
 # Highlight tampered areas and extract contours
@@ -34,52 +34,81 @@ def highlight_tampered_sections(reference, test, diff):
 
     return result_image, thresh, tampered_areas
 
-# Determine if the PAN card is fake or valid based on SSIM score
+# Decision logic
 def determine_result(score):
     if score >= 0.85:
-        return "Valid PAN Card", "✅ High similarity score and minimal structural differences."
+        return "✅ Valid PAN Card", "High similarity score and minimal structural differences."
     else:
-        return "Fake PAN Card", "❌ Major structural differences detected. Possible fake document."
+        return "❌ Fake PAN Card", "Major structural differences detected. Possible tampering."
 
-# Streamlit app UI
+# Define zone mappings for PAN fields (optional regions)
+regions = {
+    "PAN Number": (30, 10, 200, 70),
+    "Candidate Name": (210, 10, 370, 70),
+    "Father's/Mother's Name": (30, 80, 200, 130),
+    "Date of Birth": (210, 80, 370, 130),
+    "Photo": (30, 140, 160, 210),
+    "QR Code": (260, 140, 390, 210),
+    "Signature": (130, 210, 270, 250)
+}
+
+# Streamlit UI
+st.set_page_config(page_title="PAN Card Tampering Detection", layout="wide")
 st.title("🔍 PAN Card Tampering Detection App")
 st.write("Upload the original and suspected PAN card images.")
 
 reference_file = st.file_uploader("Upload Original PAN Card", type=["png", "jpg", "jpeg"])
 test_files = st.file_uploader("Upload Test PAN Cards", type=["png", "jpg", "jpeg"], accept_multiple_files=True)
 
+ssim_scores = []
+file_names = []
+
 if reference_file and test_files:
-    # Preprocess the reference image (original PAN card)
     ref_img = preprocess_image(reference_file)
 
-    # Loop through all the uploaded test files
     for test_file in test_files:
-        # Preprocess the test image
         test_img = preprocess_image(test_file)
-        # Compare images and get SSIM score and difference image
         score, diff = compare_images(ref_img, test_img)
-        # Highlight tampered areas and extract contours
         result_img, thresh_img, tampered_areas = highlight_tampered_sections(ref_img, test_img, diff)
-
-        # Determine result based on SSIM score
         result, reason = determine_result(score)
 
-        # Display the results for each test image
-        st.subheader(f"Results for: {test_file.name}")
-        st.image(ref_img, caption="Original PAN Card", use_container_width=True, channels="GRAY")
-        st.image(diff, caption="SSIM Difference Image", use_container_width=True, channels="GRAY")
-        st.image(thresh_img, caption="Thresholded Tampering Detection Image", use_container_width=True, channels="GRAY")
-        st.image(result_img, caption="Detected Tampered Sections", use_container_width=True)
+        ssim_scores.append(score)
+        file_names.append(test_file.name)
+
+        detected_sections = set()
+        for (x, y, w, h) in tampered_areas:
+            cx, cy = x + w // 2, y + h // 2
+            for label, (x1, y1, x2, y2) in regions.items():
+                if x1 <= cx <= x2 and y1 <= cy <= y2:
+                    detected_sections.add(f"❌ {label} is tampered.")
+
+        st.subheader(f"📄 Results for: {test_file.name}")
+        col1, col2 = st.columns(2)
+        with col1:
+            st.image(ref_img, caption="Original PAN Card", channels="GRAY", use_container_width=True)
+            st.image(diff, caption="SSIM Difference Image", channels="GRAY", use_container_width=True)
+        with col2:
+            st.image(thresh_img, caption="Thresholded Tampering Detection", channels="GRAY", use_container_width=True)
+            st.image(result_img, caption="Detected Tampered Sections", use_container_width=True)
 
         st.write(f"**SSIM Score:** {score:.4f}")
         st.write(f"**Result:** {result}")
         st.write(f"**Reason:** {reason}")
 
-        if tampered_areas:
-            st.write("**Tampered Sections Detected:**")
-            for i, (x, y, w, h) in enumerate(tampered_areas, 1):
-                st.write(f"❌ Section {i}: Tampered (Bounding Box: ({x}, {y}, {w}, {h}))")
+        if detected_sections:
+            st.write("### Tampered Fields:")
+            for section in sorted(detected_sections):
+                st.write(section)
         else:
-            st.write("✅ No tampering detected.")
-
+            st.write("✅ No specific tampered fields detected.")
         st.markdown("---")
+
+    # Plot SSIM scores
+    st.subheader("📊 SSIM Score Summary")
+    fig, ax = plt.subplots()
+    ax.bar(file_names, ssim_scores, color='skyblue')
+    ax.set_ylabel("SSIM Score")
+    ax.set_title("SSIM Comparison of Test Images")
+    ax.set_ylim([0, 1])
+    plt.xticks(rotation=45)
+    st.pyplot(fig)
